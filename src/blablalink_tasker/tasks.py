@@ -125,23 +125,20 @@ class BlablaTaskRunner:
         task_name = "点赞 / 重新点赞"
         LOGGER.info("开始执行：%s", task_name)
 
-        attempted = 0
+        like_indexes = await self._visible_indexes(self.selectors.like_target, timeout=2500)
+        target_indexes = like_indexes[: self.config.max_likes]
+        attempted = len(target_indexes)
         completed = 0
-        for index in range(self.config.max_likes):
-            if not await self._is_visible(self.selectors.like_target, timeout=2500):
-                break
 
-            attempted += 1
-            LOGGER.info("执行点赞步骤 %s/%s", index + 1, self.config.max_likes)
+        for step, element_index in enumerate(target_indexes, start=1):
+            LOGGER.info("执行点赞步骤 %s/%s（元素 %s）", step, attempted, element_index)
             if self.dry_run:
                 continue
 
-            target = self.page.locator(self.selectors.like_target).first
-            await target.click()
+            await self._click_indexed_element(self.selectors.like_target, element_index)
             await self._settle(1.0)
-            if await self._is_visible(self.selectors.like_target, timeout=1800):
-                await self.page.locator(self.selectors.like_target).first.click()
-                await self._settle(1.0)
+            await self._click_indexed_element(self.selectors.like_target, element_index)
+            await self._settle(1.0)
             completed += 1
 
         if attempted == 0:
@@ -154,18 +151,17 @@ class BlablaTaskRunner:
         task_name = "浏览"
         LOGGER.info("开始执行：%s", task_name)
 
-        attempted = 0
+        browse_indexes = await self._visible_indexes(self.selectors.browse_target, timeout=2500)
+        target_indexes = browse_indexes[: self.config.max_browses]
+        attempted = len(target_indexes)
         completed = 0
-        for index in range(self.config.max_browses):
-            if not await self._is_visible(self.selectors.browse_target, timeout=2500):
-                break
 
-            attempted += 1
-            LOGGER.info("执行浏览步骤 %s/%s", index + 1, self.config.max_browses)
+        for step, element_index in enumerate(target_indexes, start=1):
+            LOGGER.info("执行浏览步骤 %s/%s（元素 %s）", step, attempted, element_index)
             if self.dry_run:
                 continue
 
-            await self.page.locator(self.selectors.browse_target).first.click()
+            await self._click_indexed_element(self.selectors.browse_target, element_index)
             await self._settle(self.config.browse_seconds)
             await self._close_post_or_go_back()
             completed += 1
@@ -194,6 +190,28 @@ class BlablaTaskRunner:
             return True
         except PlaywrightTimeoutError:
             return False
+
+    async def _visible_indexes(self, selector: str, *, timeout: int) -> list[int]:
+        if not await self._is_visible(selector, timeout=timeout):
+            return []
+
+        locator = self.page.locator(selector)
+        total = await locator.count()
+        indexes: list[int] = []
+        for index in range(total):
+            try:
+                if await locator.nth(index).is_visible():
+                    indexes.append(index)
+            except PlaywrightTimeoutError:
+                continue
+        return indexes
+
+    async def _click_indexed_element(self, selector: str, index: int) -> None:
+        target = self.page.locator(selector).nth(index)
+        await target.scroll_into_view_if_needed()
+        if not await target.is_visible():
+            raise SelectorChangedError(f"元素在点击前变为不可见：{selector} nth({index})")
+        await target.click()
 
     async def _settle(self, seconds: float = 1.0) -> None:
         await asyncio.sleep(max(seconds, 0))

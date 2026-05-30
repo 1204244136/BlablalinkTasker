@@ -61,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="执行社区每日任务")
     add_common_options(run_parser)
     run_parser.add_argument("--dry-run", action="store_true", help="只检查流程，不点击任务按钮")
+    run_parser.add_argument("--pause-on-finish", action="store_true", help="任务结束后暂停，按 Enter 后再关闭浏览器")
 
     diagnose_parser = subparsers.add_parser("diagnose", help="诊断会话和页面选择器")
     add_common_options(diagnose_parser)
@@ -91,7 +92,7 @@ async def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "setup":
         return await setup(config, wait_for_enter=not args.no_wait)
     if args.command == "run":
-        return await run_tasks(config, dry_run=args.dry_run)
+        return await run_tasks(config, dry_run=args.dry_run, pause_on_finish=args.pause_on_finish)
     if args.command == "diagnose":
         return await diagnose(config)
     if args.command == "clear-session":
@@ -145,14 +146,17 @@ async def setup(config: AppConfig, *, wait_for_enter: bool = True) -> int:
     return EXIT_OK
 
 
-async def run_tasks(config: AppConfig, *, dry_run: bool = False) -> int:
+async def run_tasks(config: AppConfig, *, dry_run: bool = False, pause_on_finish: bool = False) -> int:
     config.ensure_session_exists()
     async with browser_page(config, use_session=True) as (_context, page):
         runner = BlablaTaskRunner(page, config, dry_run=dry_run)
         summary = await runner.run_all()
 
-    for line in summary.format_lines():
-        LOGGER.info(line)
+        for line in summary.format_lines():
+            LOGGER.info(line)
+
+        if pause_on_finish:
+            await asyncio.to_thread(input, "任务执行结束，浏览器将保持打开。检查完成后按 Enter 关闭浏览器...")
 
     if summary.ok:
         return EXIT_OK

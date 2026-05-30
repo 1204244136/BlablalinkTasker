@@ -11,6 +11,7 @@ def test_parser_accepts_run_options():
         "run",
         "--headful",
         "--dry-run",
+        "--pause-on-finish",
         "--max-likes",
         "3",
         "--browse-seconds",
@@ -20,6 +21,7 @@ def test_parser_accepts_run_options():
     assert args.command == "run"
     assert args.headful is True
     assert args.dry_run is True
+    assert args.pause_on_finish is True
     assert args.max_likes == 3
     assert args.browse_seconds == 1.5
 
