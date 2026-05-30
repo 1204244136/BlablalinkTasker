@@ -20,6 +20,7 @@ from .errors import (
     exit_code_for_error,
 )
 from .logging_utils import configure_logging
+from .session_renewal import renew_session, safe_cookie_names
 from .tasks import BlablaTaskRunner
 
 LOGGER = logging.getLogger(__name__)
@@ -66,6 +67,9 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose_parser = subparsers.add_parser("diagnose", help="诊断会话和页面选择器")
     add_common_options(diagnose_parser)
 
+    renew_parser = subparsers.add_parser("renew-session", help="使用当前 game cookie 续期登录会话")
+    add_common_options(renew_parser)
+
     clear_parser = subparsers.add_parser("clear-session", help="删除本地保存的登录会话")
     add_common_options(clear_parser)
     clear_parser.add_argument("--yes", action="store_true", help="确认删除会话文件")
@@ -95,6 +99,8 @@ async def _dispatch(args: argparse.Namespace) -> int:
         return await run_tasks(config, dry_run=args.dry_run, pause_on_finish=args.pause_on_finish)
     if args.command == "diagnose":
         return await diagnose(config)
+    if args.command == "renew-session":
+        return await renew_saved_session(config)
     if args.command == "clear-session":
         return clear_session(config, yes=args.yes)
 
@@ -172,6 +178,20 @@ async def diagnose(config: AppConfig) -> int:
     for line in report.format_lines():
         LOGGER.info(line)
     return EXIT_OK if report.login_ok else 3
+
+
+async def renew_saved_session(config: AppConfig) -> int:
+    config.ensure_session_exists()
+    async with browser_page(config, use_session=True) as (context, page):
+        await page.goto(config.base_url, wait_until="domcontentloaded")
+        result = await renew_session(context, page, config)
+
+    LOGGER.info("%s", result.message)
+    if result.updated_cookie_names:
+        LOGGER.info("已更新 Cookie：%s", safe_cookie_names(result.updated_cookie_names))
+    if result.expire_days is not None:
+        LOGGER.info("预计续期天数：%s 天", result.expire_days)
+    return EXIT_OK if result.renewed else 1
 
 
 def clear_session(config: AppConfig, *, yes: bool) -> int:

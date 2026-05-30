@@ -34,6 +34,7 @@ Blablalink 社区任务命令行自动化工具。
 - [方法 1：在自己电脑上运行](#方法-1在自己电脑上运行)
 - [首次登录配置](#首次登录配置)
 - [日常运行](#日常运行)
+- [会话续期](#会话续期)
 - [MXU 自定义程序联动 MDA](#mxu-自定义程序联动-mda)
 - [调试命令](#调试命令)
 - [Windows 任务计划程序定时运行](#windows-任务计划程序定时运行)
@@ -117,6 +118,36 @@ blablalink-tasker run
 ```powershell
 blablalink-tasker run
 ```
+
+## 会话续期
+
+Blablalink 登录状态通常有有效期。已有会话仍可用时，可以运行：
+
+```powershell
+blablalink-tasker renew-session --verbose
+```
+
+该命令会使用当前保存的 `game_*` Cookie 请求 Blablalink 登录接口刷新会话，并把新的 Cookie 写回 `.blablalink/storage_state.json`。
+
+注意：该功能是实验性的。如果 Blablalink 服务端存在 30 天硬过期限制，仅刷新 Cookie 可能仍然无法避免最终过期。续期失败或会话已经失效时，仍然需要重新运行：
+
+```powershell
+blablalink-tasker setup
+```
+
+如果使用仓库内置的 `日常运行.bat`，脚本会先执行：
+
+```powershell
+blablalink-tasker renew-session --verbose
+```
+
+然后再执行：
+
+```powershell
+blablalink-tasker run
+```
+
+续期失败不会阻止日常任务继续执行；如果日常任务也失败，再重新运行 `blablalink-tasker setup`。
 
 ## MXU 自定义程序联动 MDA
 
