@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# BlablaLink runtime secrets/session
+.blablalink/
+.env
+
+# Logs
+*.log
+logs/
