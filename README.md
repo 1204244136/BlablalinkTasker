@@ -19,17 +19,26 @@ Blablalink 社区任务命令行自动化工具。
 
 - Windows 10 / Windows 11
 - Python 3.10 或更高版本
+- Git，用于克隆仓库
 - Chromium 浏览器由 Playwright 自动安装
+
+如果本机还没有基础环境，请先参考官方文档安装：
+
+- [Python 官方下载页面](https://www.python.org/downloads/)
+- [Git 官方下载页面](https://git-scm.com/downloads)
+
+安装 Python 时建议勾选 “Add python.exe to PATH”。
 
 ## 快速导航
 
 - [方法 1：在自己电脑上运行](#方法-1在自己电脑上运行)
 - [首次登录配置](#首次登录配置)
 - [日常运行](#日常运行)
+- [MXU 自定义程序联动 MDA](#mxu-自定义程序联动-mda)
 - [调试命令](#调试命令)
 - [Windows 任务计划程序定时运行](#windows-任务计划程序定时运行)
 - [常见问题](#常见问题)
-- [发布与工作流评估](#发布与工作流评估)
+- [安全说明](#安全说明)
 
 ## 方法 1：在自己电脑上运行
 
@@ -97,19 +106,59 @@ blablalink-tasker run
 
 默认会无窗口执行任务。正常情况下，执行结束后终端会输出每日任务摘要。
 
+如果你使用的启动器不方便直接填写命令行程序和参数，可以使用仓库内置的批处理文件：
+
+```text
+日常运行.bat
+```
+
+该文件会自动切换到项目目录并执行：
+
+```powershell
+blablalink-tasker run
+```
+
+## MXU 自定义程序联动 MDA
+
+MDA 是一个 NIKKE 自动化脚本项目，MXU 是 MDA 使用的 UI 框架。MXU 提供“自定义程序”功能，可以在启动 MDA 时顺带运行本工具。
+
+如果需要在 MXU 中配置 BlablalinkTasker，可以直接指定仓库中的批处理文件。
+
+### 添加位置
+
+在 MDA 主界面中，点击底部的“添加任务”，进入“特殊任务”分类，选择“自定义程序”。添加后即可填写程序路径和参数。
+
+### 推荐配置
+
+- 程序路径：选择本仓库下的 `日常运行.bat`
+- 附加参数：留空
+- 等待退出：建议开启
+- 已运行时跳过：建议开启
+- 通过 cmd 启动：一般可以关闭；如果启动异常，再尝试开启
+
+`日常运行.bat` 会先切换到脚本所在目录，再执行日常任务。这样即使 MXU 从其他工作目录启动，也能正确找到 `.blablalink/storage_state.json`。
+
+### 首次使用注意
+
+MXU 的自定义程序适合在日常启动 MDA 项目时顺带启动本工具，不适合首次登录配置。首次登录仍然需要先在 PowerShell 中手动运行：
+
+```powershell
+blablalink-tasker setup
+```
+
+确认 `setup` 成功后，再在 MXU 的自定义程序中调用 `日常运行.bat`。
+
 ## 调试命令
 
-### 查看浏览器执行过程
+日常用户一般只需要 `blablalink-tasker run` 或 `日常运行.bat`。如果需要排查登录、页面选择器或浏览器点击行为，再参考本节。
 
-如果你想看到浏览器实际点击过程：
+### 查看浏览器执行过程
 
 ```powershell
 blablalink-tasker run --headful --verbose
 ```
 
 ### 执行完成后不立刻关闭浏览器
-
-推荐调试时使用：
 
 ```powershell
 blablalink-tasker run --headful --verbose --pause-on-finish
@@ -118,8 +167,6 @@ blablalink-tasker run --headful --verbose --pause-on-finish
 任务执行结束后，浏览器会保持打开。确认页面状态后，回到终端按 Enter 关闭浏览器。
 
 ### 慢动作执行
-
-如果动作太快看不清：
 
 ```powershell
 blablalink-tasker run --headful --verbose --slow-mo-ms 1000 --pause-on-finish
@@ -302,51 +349,6 @@ blablalink-tasker diagnose --headful --verbose
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
-
-## 发布与工作流评估
-
-### 当前是否建议构建 GitHub Actions 自动运行？
-
-暂不建议。
-
-原因：
-
-1. 本项目依赖 Playwright 的浏览器登录会话文件 `.blablalink/storage_state.json`。
-2. 该文件包含敏感 cookie / token，不适合提交到公开仓库。
-3. GitHub Actions 的运行环境是临时环境，每次运行都需要恢复会话文件。
-4. 如果把会话文件放进 Actions Secrets，需要额外处理 base64 编码、文件恢复、过期更新等问题，使用门槛较高。
-5. Blablalink 页面自动化依赖浏览器环境，云端无头浏览器更容易遇到登录失效、验证码或风控问题。
-
-因此，当前阶段推荐先发布源码，并引导用户在本地运行。
-
-### 当前是否建议发布 Release？
-
-暂不建议打包 exe 作为正式 Release 产物。
-
-原因：
-
-1. Playwright 依赖浏览器二进制，打包成 exe 后仍然需要处理 Chromium 安装或随包分发。
-2. 如果把浏览器也打包进去，Release 体积会明显变大。
-3. 当前项目还处于页面选择器验证阶段，网站改版时可能需要频繁更新。
-4. 直接源码安装更透明，也更方便用户自行调试。
-
-### 当前推荐发布方式
-
-推荐先发布源码仓库，并在 README 中说明：
-
-```powershell
-python -m pip install -e .
-python -m playwright install chromium
-blablalink-tasker setup
-blablalink-tasker run
-```
-
-等后续版本稳定后，再考虑：
-
-- 增加 GitHub Actions 仅用于运行测试；
-- 增加 PyInstaller 打包脚本；
-- 发布 Windows exe；
-- 增加 Release 自动构建工作流。
 
 ## 安全说明
 
