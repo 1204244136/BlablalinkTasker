@@ -20,6 +20,7 @@ from .errors import (
     exit_code_for_error,
 )
 from .logging_utils import configure_logging
+from .rewards import RewardRedemptionRunner
 from .session_renewal import renew_session, safe_cookie_names
 from .tasks import BlablaTaskRunner
 
@@ -64,6 +65,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--dry-run", action="store_true", help="只检查流程，不点击任务按钮")
     run_parser.add_argument("--pause-on-finish", action="store_true", help="任务结束后暂停，按 Enter 后再关闭浏览器")
 
+    redeem_parser = subparsers.add_parser("redeem", help="兑换奖励中心奖励")
+    add_common_options(redeem_parser)
+    redeem_parser.add_argument("--force", action="store_true", help="忽略本月兑换记录，强制尝试兑换")
+    redeem_parser.add_argument("--pause-on-finish", action="store_true", help="兑换结束后暂停，按 Enter 后再关闭浏览器")
+
     diagnose_parser = subparsers.add_parser("diagnose", help="诊断会话和页面选择器")
     add_common_options(diagnose_parser)
 
@@ -80,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
 def add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base-url", dest="base_url", help="BlablaLink 首页 URL")
     parser.add_argument("--session-path", type=Path, dest="session_path", help="Playwright storage_state 路径")
+    parser.add_argument("--redemption-record-path", type=Path, dest="redemption_record_path", help="奖励兑换记录路径")
     parser.add_argument("--headful", action="store_true", help="显示浏览器窗口运行")
     parser.add_argument("--headless", action="store_true", help="强制无头运行")
     parser.add_argument("--timeout-ms", type=int, dest="timeout_ms", help="页面操作超时时间")
@@ -98,6 +105,8 @@ async def _dispatch(args: argparse.Namespace) -> int:
         return await setup(config, wait_for_enter=not args.no_wait)
     if args.command == "run":
         return await run_tasks(config, dry_run=args.dry_run, pause_on_finish=args.pause_on_finish)
+    if args.command == "redeem":
+        return await redeem_rewards(config, force=args.force, pause_on_finish=args.pause_on_finish)
     if args.command == "diagnose":
         return await diagnose(config)
     if args.command == "renew-session":
@@ -112,6 +121,7 @@ def _config_from_args(args: argparse.Namespace) -> AppConfig:
     overrides = {
         "base_url": args.base_url,
         "session_path": args.session_path,
+        "redemption_record_path": args.redemption_record_path,
         "timeout_ms": args.timeout_ms,
         "max_likes": args.max_likes,
         "max_browses": args.max_browses,
@@ -134,6 +144,7 @@ async def setup(config: AppConfig, *, wait_for_enter: bool = True) -> int:
     setup_config = AppConfig(
         base_url=config.base_url,
         session_path=config.session_path,
+        redemption_record_path=config.redemption_record_path,
         headless=False,
         timeout_ms=config.timeout_ms,
         max_likes=config.max_likes,
@@ -166,6 +177,23 @@ async def run_tasks(config: AppConfig, *, dry_run: bool = False, pause_on_finish
 
         if pause_on_finish:
             await asyncio.to_thread(input, "任务执行结束，浏览器将保持打开。检查完成后按 Enter 关闭浏览器...")
+
+    if summary.ok:
+        return EXIT_OK
+    return 1 if config.exit_when_fail else EXIT_OK
+
+
+async def redeem_rewards(config: AppConfig, *, force: bool = False, pause_on_finish: bool = False) -> int:
+    config.ensure_session_exists()
+    async with browser_page(config, use_session=True) as (_context, page):
+        runner = RewardRedemptionRunner(page, config, force=force)
+        summary = await runner.redeem_all()
+
+        for line in summary.format_lines():
+            LOGGER.info(line)
+
+        if pause_on_finish:
+            await asyncio.to_thread(input, "兑换执行结束，浏览器将保持打开。检查完成后按 Enter 关闭浏览器...")
 
     if summary.ok:
         return EXIT_OK

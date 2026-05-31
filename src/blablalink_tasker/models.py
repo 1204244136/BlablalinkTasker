@@ -46,7 +46,7 @@ class TaskSummary:
         return self.login_ok and all(result.ok for result in self.results)
 
     def format_lines(self) -> list[str]:
-        lines = ["BlablaLink 每日任务摘要", f"- 登录状态: {'正常' if self.login_ok else '需要重新登录'}"]
+        lines = ["BlablaLink 任务摘要", f"- 登录状态: {'正常' if self.login_ok else '需要重新登录'}"]
         for result in self.results:
             suffix = ""
             if result.attempted or result.completed:

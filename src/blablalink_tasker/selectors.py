@@ -29,6 +29,35 @@ class SelectorSet:
         r".\!text-\[color\:var\(--text-3\)\]"
         r".opacity-60"
     )
+    reward_title: str = (
+        r".text-\[length\:11px\]"
+        r".line-clamp-2"
+        r".mb-\[10px\]"
+        r".font-bold"
+        r".text-\[color\:var\(--other-6\)\]"
+        r".leading-\[14px\]"
+    )
+    reward_redeem_button: str = (
+        r".flex"
+        r".cursor-pointer"
+        r".justify-center"
+        r".h-\[40px\]"
+        r".p-\[5px\]"
+        r".text-\[length\:14px\]"
+        r".leading-\[16px\]"
+        r".font-bold"
+        r".items-center"
+        r".text-\[color\:var\(--color-white\)\]"
+        r".bg-\[color\:var\(--brand-1\)\]"
+        r".mb-\[6px\]"
+    )
+    reward_token_amount: str = (
+        r".font-\[DINNextLTProBold\]"
+        r".text-\[color\:var\(--other-6\)\]"
+        r".mt-\[4px\]"
+        r".text-\[length\:20px\]"
+        r".leading-\[1\]"
+    )
 
     login_links: tuple[str, ...] = (
         "text=Log in",

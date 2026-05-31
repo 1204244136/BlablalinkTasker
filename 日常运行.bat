@@ -15,10 +15,25 @@ if "%~1"=="" (
     )
 
     blablalink-tasker run
+    set "RUN_EXIT_CODE=%ERRORLEVEL%"
+    if not "%RUN_EXIT_CODE%"=="0" (
+        echo.
+        echo BlablalinkTasker 日常任务失败，退出码：%RUN_EXIT_CODE%
+        echo 将继续尝试奖励兑换。
+        echo.
+    )
+
+    blablalink-tasker redeem
+    set "REDEEM_EXIT_CODE=%ERRORLEVEL%"
+    if not "%REDEEM_EXIT_CODE%"=="0" (
+        set "EXIT_CODE=%REDEEM_EXIT_CODE%"
+    ) else (
+        set "EXIT_CODE=%RUN_EXIT_CODE%"
+    )
 ) else (
     blablalink-tasker %*
+    set "EXIT_CODE=%ERRORLEVEL%"
 )
-set "EXIT_CODE=%ERRORLEVEL%"
 
 if not "%EXIT_CODE%"=="0" (
     echo.

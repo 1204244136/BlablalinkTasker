@@ -10,6 +10,7 @@ Blablalink 社区任务命令行自动化工具。
 
 - 保存 Blablalink 登录会话
 - 命令行执行社区每日任务
+- 单独兑换奖励中心月度奖励
 - 支持无头运行，适合本地定时任务
 - 支持可视化调试模式
 - 支持 dry-run 检查任务入口
@@ -34,6 +35,7 @@ Blablalink 社区任务命令行自动化工具。
 - [方法 1：在自己电脑上运行](#方法-1在自己电脑上运行)
 - [首次登录配置](#首次登录配置)
 - [日常运行](#日常运行)
+- [奖励兑换](#奖励兑换)
 - [会话续期](#会话续期)
 - [MXU 自定义程序联动 MDA](#mxu-自定义程序联动-mda)
 - [调试命令](#调试命令)
@@ -116,8 +118,12 @@ blablalink-tasker run
 该文件会自动切换到项目目录并执行：
 
 ```powershell
+blablalink-tasker renew-session --verbose
 blablalink-tasker run
+blablalink-tasker redeem
 ```
+
+也就是说，使用 `日常运行.bat` 时会先尝试续期登录会话，再完成每日任务，最后根据当月兑换记录自动兑换奖励中心可购买的月度奖励。
 
 ## 会话续期
 
@@ -141,13 +147,46 @@ blablalink-tasker setup
 blablalink-tasker renew-session --verbose
 ```
 
-然后再执行：
+然后再执行每日任务和奖励兑换：
 
 ```powershell
 blablalink-tasker run
+blablalink-tasker redeem
 ```
 
-续期失败不会阻止日常任务继续执行；如果日常任务也失败，再重新运行 `blablalink-tasker setup`。
+续期失败不会阻止日常任务继续执行；日常任务失败时仍会尝试奖励兑换。如果日常任务也失败，再重新运行 `blablalink-tasker setup`。
+
+## 奖励兑换
+
+完成每日任务后，可以单独运行奖励中心兑换：
+
+```powershell
+blablalink-tasker redeem
+```
+
+兑换会读取奖励中心当前代币数量，并优先按大档位兑换珠宝：`4999`、`1999`、`999`、`499`。如果剩余代币足够，也会兑换欢迎礼物（芯尘×30）。
+
+对应奖励为：
+
+| 奖励 | 消耗 |
+| --- | --- |
+| 珠宝×320 | `4999` |
+| 珠宝×120 | `1999` |
+| 珠宝×60 | `999` |
+| 珠宝×30 | `499` |
+| 欢迎礼物（芯尘×30） | `1` |
+
+每个档位每月只会尝试一次，记录保存到：
+
+```text
+.blablalink/redemptions.json
+```
+
+如果需要忽略本月记录并重新尝试：
+
+```powershell
+blablalink-tasker redeem --force
+```
 
 ## MXU 自定义程序联动 MDA
 
@@ -267,12 +306,8 @@ C:\Users\你的用户名\AppData\Local\Programs\Python\Python312\Scripts\blablal
 1. 触发器选择“每天”。
 1. 时间建议选择你通常不会使用电脑的时间。
 1. 操作选择“启动程序”。
-1. 程序或脚本填写 `where.exe blablalink-tasker` 查到的完整路径。
-1. 参数填写：
-
-```text
-run
-```
+1. 程序或脚本填写仓库中的 `日常运行.bat` 路径。
+1. 参数留空。
 
 1. 起始于填写项目目录，例如：
 
@@ -287,10 +322,15 @@ C:\Users\12042\Documents\GitHub\BlablalinkTasker
 如果任务失败，建议先回到项目目录手动执行：
 
 ```powershell
-blablalink-tasker run --headful --verbose --pause-on-finish
+日常运行.bat
 ```
 
-确认登录状态和页面流程是否正常。
+如需可视化确认每日任务或兑换流程，可以分别运行：
+
+```powershell
+blablalink-tasker run --headful --verbose --pause-on-finish
+blablalink-tasker redeem --headful --verbose --pause-on-finish
+```
 
 ## 常用参数
 
@@ -300,11 +340,13 @@ blablalink-tasker run --headful --verbose --pause-on-finish
 | `--headless` | 强制无头运行 |
 | `--verbose` | 输出详细日志 |
 | `--dry-run` | 只检查任务入口，不点击 |
+| `--force` | `redeem` 时忽略本月兑换记录，强制尝试兑换 |
 | `--pause-on-finish` | 执行完成后等待 Enter 再关闭浏览器 |
 | `--slow-mo-ms 1000` | 每个 Playwright 操作放慢 1000 毫秒 |
 | `--max-likes 2` | 限制点赞 / 重新点赞次数 |
 | `--max-browses 2` | 限制浏览次数 |
 | `--points-repair-rounds 3` | 奖励中心复核补做最大轮数 |
+| `--redemption-record-path redemptions.json` | 指定奖励兑换记录路径 |
 | `--timeout-ms 30000` | 增加页面操作超时时间 |
 
 ## 环境变量
@@ -313,6 +355,7 @@ blablalink-tasker run --headful --verbose --pause-on-finish
 | --- | --- | --- |
 | `BLABLA_BASE_URL` | `https://www.blablalink.com/` | Blablalink 首页 |
 | `BLABLA_SESSION_PATH` | `.blablalink/storage_state.json` | Playwright 会话文件 |
+| `BLABLA_REDEMPTION_RECORD_PATH` | `.blablalink/redemptions.json` | 奖励兑换记录文件 |
 | `BLABLA_HEADLESS` | `true` | 默认是否无头运行 |
 | `BLABLA_TIMEOUT_MS` | `15000` | 页面操作超时时间 |
 | `BLABLA_MAX_LIKES` | `5` | 点赞 / 重新点赞最大次数 |

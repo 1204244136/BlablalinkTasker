@@ -10,6 +10,7 @@ def test_load_config_defaults(monkeypatch):
     for name in [
         "BLABLA_BASE_URL",
         "BLABLA_SESSION_PATH",
+        "BLABLA_REDEMPTION_RECORD_PATH",
         "BLABLA_HEADLESS",
         "BLABLA_TIMEOUT_MS",
         "BLABLA_MAX_LIKES",
@@ -25,6 +26,7 @@ def test_load_config_defaults(monkeypatch):
 
     assert config.base_url == "https://www.blablalink.com/"
     assert config.session_path == Path(".blablalink/storage_state.json")
+    assert config.redemption_record_path == Path(".blablalink/redemptions.json")
     assert config.headless is True
     assert config.max_likes == 5
     assert config.max_browses == 5
@@ -37,6 +39,7 @@ def test_load_config_env_overrides(monkeypatch):
     monkeypatch.setenv("BLABLA_MAX_LIKES", "2")
     monkeypatch.setenv("BLABLA_BROWSE_SECONDS", "2.5")
     monkeypatch.setenv("BLABLA_POINTS_REPAIR_ROUNDS", "4")
+    monkeypatch.setenv("BLABLA_REDEMPTION_RECORD_PATH", "custom-redemptions.json")
 
     config = load_config()
 
@@ -45,6 +48,7 @@ def test_load_config_env_overrides(monkeypatch):
     assert config.max_likes == 2
     assert config.browse_seconds == 2.5
     assert config.points_repair_rounds == 4
+    assert config.redemption_record_path == Path("custom-redemptions.json")
 
 
 def test_load_config_rejects_invalid_bool(monkeypatch):

@@ -12,6 +12,7 @@ from .errors import ConfigError
 
 DEFAULT_BASE_URL = "https://www.blablalink.com/"
 DEFAULT_SESSION_PATH = Path(".blablalink/storage_state.json")
+DEFAULT_REDEMPTION_RECORD_PATH = Path(".blablalink/redemptions.json")
 DEFAULT_HEADLESS = True
 DEFAULT_TIMEOUT_MS = 15_000
 DEFAULT_MAX_LIKES = 5
@@ -31,6 +32,7 @@ class AppConfig:
 
     base_url: str = DEFAULT_BASE_URL
     session_path: Path = DEFAULT_SESSION_PATH
+    redemption_record_path: Path = DEFAULT_REDEMPTION_RECORD_PATH
     headless: bool = DEFAULT_HEADLESS
     timeout_ms: int = DEFAULT_TIMEOUT_MS
     max_likes: int = DEFAULT_MAX_LIKES
@@ -57,6 +59,9 @@ def load_config(**overrides: Any) -> AppConfig:
     config = AppConfig(
         base_url=os.getenv("BLABLA_BASE_URL", DEFAULT_BASE_URL),
         session_path=Path(os.getenv("BLABLA_SESSION_PATH", str(DEFAULT_SESSION_PATH))),
+        redemption_record_path=Path(
+            os.getenv("BLABLA_REDEMPTION_RECORD_PATH", str(DEFAULT_REDEMPTION_RECORD_PATH))
+        ),
         headless=_env_bool("BLABLA_HEADLESS", DEFAULT_HEADLESS),
         timeout_ms=_env_int("BLABLA_TIMEOUT_MS", DEFAULT_TIMEOUT_MS, minimum=1),
         max_likes=_env_int("BLABLA_MAX_LIKES", DEFAULT_MAX_LIKES, minimum=0),

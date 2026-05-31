@@ -29,6 +29,24 @@ def test_parser_accepts_run_options():
     assert args.points_repair_rounds == 2
 
 
+def test_parser_accepts_redeem_options():
+    parser = build_parser()
+    args = parser.parse_args([
+        "redeem",
+        "--headful",
+        "--force",
+        "--pause-on-finish",
+        "--redemption-record-path",
+        "redemptions.json",
+    ])
+
+    assert args.command == "redeem"
+    assert args.headful is True
+    assert args.force is True
+    assert args.pause_on_finish is True
+    assert args.redemption_record_path == Path("redemptions.json")
+
+
 def test_main_rejects_conflicting_head_modes():
     code = main(["diagnose", "--headful", "--headless"])
 
