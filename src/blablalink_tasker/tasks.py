@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
@@ -14,6 +15,8 @@ from .models import TaskResult, TaskStatus, TaskSummary
 from .selectors import DEFAULT_SELECTORS, SelectorSet
 
 LOGGER = logging.getLogger(__name__)
+PROGRESS_TEXT = "5 / 5"
+PROGRESS_PATTERN = re.compile(r"^(\d+)\s*/\s*(\d+)$")
 
 
 @dataclass(slots=True)
@@ -68,6 +71,7 @@ class BlablaTaskRunner:
             await self.do_check_in(),
             await self.do_likes(),
             await self.do_browses(),
+            await self.verify_points_progress(),
         ]
         return TaskSummary(login_ok=login_ok, results=results)
 
@@ -173,6 +177,60 @@ class BlablaTaskRunner:
             return TaskResult(task_name, TaskStatus.SKIPPED, "dry-run：未打开浏览目标", attempted=attempted)
         return TaskResult(task_name, TaskStatus.COMPLETED, "浏览流程结束", attempted=attempted, completed=completed)
 
+    async def verify_points_progress(self) -> TaskResult:
+        task_name = "奖励中心复核"
+        LOGGER.info("开始执行：%s", task_name)
+
+        await self.page.goto(self._points_url(), wait_until="domcontentloaded")
+        await self._settle()
+
+        if self.dry_run:
+            return TaskResult(task_name, TaskStatus.SKIPPED, "dry-run：未展开奖励中心进度区域", attempted=2)
+
+        if await self._is_visible(self.selectors.points_expand_button, timeout=2500):
+            await self.page.locator(self.selectors.points_expand_button).first.click()
+            await self._settle(0.8)
+
+        values = await self._points_progress_values()
+        completed = sum(1 for value in values if self._is_complete_points_progress(value))
+
+        if len(values) < 2:
+            return TaskResult(
+                task_name,
+                TaskStatus.FAILED,
+                f"奖励中心进度文本不足：期望 2 个，实际 {len(values)} 个，读取到 {values}",
+                attempted=2,
+                completed=completed,
+            )
+
+        if completed != 2:
+            return TaskResult(
+                task_name,
+                TaskStatus.FAILED,
+                f"奖励中心进度未完成：期望 ['{PROGRESS_TEXT}', '{PROGRESS_TEXT}']，实际 {values}",
+                attempted=2,
+                completed=completed,
+            )
+
+        return TaskResult(
+            task_name,
+            TaskStatus.COMPLETED,
+            "奖励中心两个进度均为 5 / 5",
+            attempted=2,
+            completed=2,
+        )
+
+    def _points_url(self) -> str:
+        return self.config.base_url.rstrip("/") + "/points"
+
+    @staticmethod
+    def _is_complete_points_progress(value: str) -> bool:
+        match = PROGRESS_PATTERN.match(value)
+        if match is None:
+            return False
+        current, target = (int(part) for part in match.groups())
+        return current == 5 and target == 5
+
     async def _close_post_or_go_back(self) -> None:
         if await self._is_visible(self.selectors.post_close, timeout=2500):
             await self.page.locator(self.selectors.post_close).first.click()
@@ -205,6 +263,29 @@ class BlablaTaskRunner:
             except PlaywrightTimeoutError:
                 continue
         return indexes
+
+    async def _points_progress_values(self) -> list[str]:
+        locator = self.page.locator(self.selectors.points_progress_text)
+        try:
+            await locator.filter(has_text=PROGRESS_PATTERN).first.wait_for(
+                state="visible",
+                timeout=self.config.timeout_ms,
+            )
+        except PlaywrightTimeoutError:
+            return []
+
+        total = await locator.count()
+        values: list[str] = []
+        for index in range(total):
+            target = locator.nth(index)
+            try:
+                if await target.is_visible():
+                    text = " ".join((await target.inner_text()).split())
+                    if PROGRESS_PATTERN.match(text):
+                        values.append(text)
+            except PlaywrightTimeoutError:
+                continue
+        return values[:2]
 
     async def _click_indexed_element(self, selector: str, index: int) -> None:
         target = self.page.locator(selector).nth(index)

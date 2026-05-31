@@ -1,7 +1,7 @@
 import pytest
 
 from blablalink_tasker.config import AppConfig
-from blablalink_tasker.models import TaskStatus
+from blablalink_tasker.models import TaskResult, TaskStatus
 from blablalink_tasker.tasks import BlablaTaskRunner
 
 
@@ -11,26 +11,41 @@ class FakeCookieContext:
 
 
 class FakeLocatorCollection:
-    def __init__(self, page, selector):
+    def __init__(self, page, selector, text_pattern=None):
         self.page = page
         self.selector = selector
+        self.text_pattern = text_pattern
 
     @property
     def first(self):
-        return FakeLocator(self.page, self.selector, 0)
+        indexes = self._matching_indexes()
+        index = indexes[0] if indexes else 0
+        return FakeLocator(self.page, self.selector, index, self.text_pattern)
 
     def nth(self, index):
-        return FakeLocator(self.page, self.selector, index)
+        return FakeLocator(self.page, self.selector, index, self.text_pattern)
+
+    def filter(self, *, has_text):
+        return FakeLocatorCollection(self.page, self.selector, has_text)
 
     async def count(self):
         return self.page.visible_counts.get(self.selector, 0)
 
+    def _matching_indexes(self):
+        total = self.page.visible_counts.get(self.selector, 0)
+        return [
+            index
+            for index in range(total)
+            if self.page.is_visible(self.selector, index) and self.page.text_matches(self.selector, index, self.text_pattern)
+        ]
+
 
 class FakeLocator:
-    def __init__(self, page, selector, index):
+    def __init__(self, page, selector, index, text_pattern=None):
         self.page = page
         self.selector = selector
         self.index = index
+        self.text_pattern = text_pattern
 
     @property
     def first(self):
@@ -38,14 +53,15 @@ class FakeLocator:
 
     async def wait_for(self, *, state, timeout):
         assert state == "visible"
-        if self.page.visible_counts.get(self.selector, 0) <= self.index:
+        if not await self.is_visible():
             from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
             raise PlaywrightTimeoutError("not visible")
 
     async def is_visible(self):
-        hidden = self.page.hidden_indexes.get(self.selector, set())
-        return self.page.visible_counts.get(self.selector, 0) > self.index and self.index not in hidden
+        return self.page.is_visible(self.selector, self.index) and self.page.text_matches(
+            self.selector, self.index, self.text_pattern
+        )
 
     async def scroll_into_view_if_needed(self):
         self.page.scrolled.append((self.selector, self.index))
@@ -53,11 +69,18 @@ class FakeLocator:
     async def click(self):
         self.page.clicks.append((self.selector, self.index))
 
+    async def inner_text(self):
+        values = self.page.texts.get(self.selector, [])
+        if len(values) <= self.index:
+            return ""
+        return values[self.index]
+
 
 class FakePage:
-    def __init__(self, visible_counts=None, hidden_indexes=None):
+    def __init__(self, visible_counts=None, hidden_indexes=None, texts=None):
         self.visible_counts = dict(visible_counts or {})
         self.hidden_indexes = {key: set(value) for key, value in (hidden_indexes or {}).items()}
+        self.texts = {key: list(value) for key, value in (texts or {}).items()}
         self.clicks = []
         self.scrolled = []
         self.url = "https://www.blablalink.com/"
@@ -65,6 +88,18 @@ class FakePage:
 
     def locator(self, selector):
         return FakeLocatorCollection(self, selector)
+
+    def is_visible(self, selector, index):
+        hidden = self.hidden_indexes.get(selector, set())
+        return self.visible_counts.get(selector, 0) > index and index not in hidden
+
+    def text_matches(self, selector, index, pattern):
+        if pattern is None:
+            return True
+        values = self.texts.get(selector, [])
+        if len(values) <= index:
+            return False
+        return bool(pattern.search(values[index]))
 
     async def goto(self, url, wait_until=None):
         self.url = url
@@ -176,6 +211,109 @@ async def test_browses_skip_hidden_matching_elements():
         (browse_selector, 4),
         (close_selector, 0),
     ]
+
+
+@pytest.mark.asyncio
+async def test_points_progress_expands_and_passes_when_two_values_complete():
+    expand_selector = runner_selector("points_expand_button")
+    progress_selector = runner_selector("points_progress_text")
+    page = FakePage(
+        {expand_selector: 1, progress_selector: 2},
+        texts={progress_selector: ["5 / 5", "5 / 5"]},
+    )
+    runner = BlablaTaskRunner(page, AppConfig())
+
+    result = await runner.verify_points_progress()
+
+    assert page.url == "https://www.blablalink.com/points"
+    assert page.clicks == [(expand_selector, 0)]
+    assert result.status == TaskStatus.COMPLETED
+    assert result.attempted == 2
+    assert result.completed == 2
+
+
+@pytest.mark.asyncio
+async def test_points_progress_fails_when_one_value_is_incomplete():
+    expand_selector = runner_selector("points_expand_button")
+    progress_selector = runner_selector("points_progress_text")
+    page = FakePage(
+        {expand_selector: 1, progress_selector: 2},
+        texts={progress_selector: ["5 / 5", "4 / 5"]},
+    )
+    runner = BlablaTaskRunner(page, AppConfig())
+
+    result = await runner.verify_points_progress()
+
+    assert result.status == TaskStatus.FAILED
+    assert result.attempted == 2
+    assert result.completed == 1
+    assert "4 / 5" in result.message
+
+
+@pytest.mark.asyncio
+async def test_points_progress_fails_when_less_than_two_values_are_found():
+    expand_selector = runner_selector("points_expand_button")
+    progress_selector = runner_selector("points_progress_text")
+    page = FakePage(
+        {expand_selector: 1, progress_selector: 1},
+        texts={progress_selector: ["5 / 5"]},
+    )
+    runner = BlablaTaskRunner(page, AppConfig())
+
+    result = await runner.verify_points_progress()
+
+    assert result.status == TaskStatus.FAILED
+    assert result.attempted == 2
+    assert result.completed == 1
+    assert "期望 2 个" in result.message
+
+
+@pytest.mark.asyncio
+async def test_points_progress_dry_run_skips_expand_click():
+    expand_selector = runner_selector("points_expand_button")
+    progress_selector = runner_selector("points_progress_text")
+    page = FakePage(
+        {expand_selector: 1, progress_selector: 2},
+        texts={progress_selector: ["5 / 5", "5 / 5"]},
+    )
+    runner = BlablaTaskRunner(page, AppConfig(), dry_run=True)
+
+    result = await runner.verify_points_progress()
+
+    assert result.status == TaskStatus.SKIPPED
+    assert result.attempted == 2
+    assert page.clicks == []
+
+
+@pytest.mark.asyncio
+async def test_run_all_includes_points_progress_failure(monkeypatch):
+    page = FakePage()
+    runner = BlablaTaskRunner(page, AppConfig())
+
+    async def open_home():
+        return None
+
+    async def check_login():
+        return True
+
+    async def completed_task():
+        return TaskResult("任务", TaskStatus.COMPLETED)
+
+    async def failed_points_task():
+        return TaskResult("奖励中心复核", TaskStatus.FAILED, "未完成", attempted=2, completed=1)
+
+    monkeypatch.setattr(runner, "open_home", open_home)
+    monkeypatch.setattr(runner, "check_login", check_login)
+    monkeypatch.setattr(runner, "do_check_in", completed_task)
+    monkeypatch.setattr(runner, "do_likes", completed_task)
+    monkeypatch.setattr(runner, "do_browses", completed_task)
+    monkeypatch.setattr(runner, "verify_points_progress", failed_points_task)
+
+    summary = await runner.run_all()
+
+    assert summary.ok is False
+    assert summary.results[-1].name == "奖励中心复核"
+    assert summary.results[-1].status == TaskStatus.FAILED
 
 
 def runner_selector(name):
