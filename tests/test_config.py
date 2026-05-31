@@ -26,7 +26,7 @@ def test_load_config_defaults(monkeypatch):
     assert config.session_path == Path(".blablalink/storage_state.json")
     assert config.headless is True
     assert config.max_likes == 5
-    assert config.max_browses == 6
+    assert config.max_browses == 5
 
 
 def test_load_config_env_overrides(monkeypatch):
