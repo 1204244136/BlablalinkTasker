@@ -240,7 +240,7 @@ async def test_points_progress_fails_when_one_value_is_incomplete():
         {expand_selector: 1, progress_selector: 2},
         texts={progress_selector: ["5 / 5", "4 / 5"]},
     )
-    runner = BlablaTaskRunner(page, AppConfig())
+    runner = BlablaTaskRunner(page, AppConfig(points_repair_rounds=0))
 
     result = await runner.verify_points_progress()
 
@@ -248,6 +248,112 @@ async def test_points_progress_fails_when_one_value_is_incomplete():
     assert result.attempted == 2
     assert result.completed == 1
     assert "4 / 5" in result.message
+
+
+@pytest.mark.asyncio
+async def test_points_progress_repairs_missing_browse_then_passes(monkeypatch):
+    page = FakePage()
+    runner = BlablaTaskRunner(page, AppConfig(points_repair_rounds=2))
+    readings = [["4 / 5", "5 / 5"], ["5 / 5", "5 / 5"]]
+    calls = []
+
+    async def settle(seconds=1.0):
+        return None
+
+    async def open_home():
+        calls.append("home")
+
+    async def do_browses():
+        calls.append("browse")
+        return TaskResult("浏览", TaskStatus.COMPLETED, attempted=1, completed=1)
+
+    async def do_likes():
+        calls.append("like")
+        return TaskResult("点赞 / 重新点赞", TaskStatus.COMPLETED, attempted=1, completed=1)
+
+    async def points_progress_values():
+        return readings.pop(0)
+
+    monkeypatch.setattr(runner, "_settle", settle)
+    monkeypatch.setattr(runner, "open_home", open_home)
+    monkeypatch.setattr(runner, "do_browses", do_browses)
+    monkeypatch.setattr(runner, "do_likes", do_likes)
+    monkeypatch.setattr(runner, "_points_progress_values", points_progress_values)
+
+    result = await runner.verify_points_progress()
+
+    assert result.status == TaskStatus.COMPLETED
+    assert result.completed == 2
+    assert "补做 1 轮" in result.message
+    assert calls == ["home", "browse"]
+
+
+@pytest.mark.asyncio
+async def test_points_progress_repairs_in_browse_then_like_order(monkeypatch):
+    page = FakePage()
+    runner = BlablaTaskRunner(page, AppConfig(points_repair_rounds=2))
+    readings = [["4 / 5", "3 / 5"], ["5 / 5", "5 / 5"]]
+    calls = []
+
+    async def settle(seconds=1.0):
+        return None
+
+    async def open_home():
+        calls.append("home")
+
+    async def do_browses():
+        calls.append("browse")
+        return TaskResult("浏览", TaskStatus.COMPLETED, attempted=1, completed=1)
+
+    async def do_likes():
+        calls.append("like")
+        return TaskResult("点赞 / 重新点赞", TaskStatus.COMPLETED, attempted=1, completed=1)
+
+    async def points_progress_values():
+        return readings.pop(0)
+
+    monkeypatch.setattr(runner, "_settle", settle)
+    monkeypatch.setattr(runner, "open_home", open_home)
+    monkeypatch.setattr(runner, "do_browses", do_browses)
+    monkeypatch.setattr(runner, "do_likes", do_likes)
+    monkeypatch.setattr(runner, "_points_progress_values", points_progress_values)
+
+    result = await runner.verify_points_progress()
+
+    assert result.status == TaskStatus.COMPLETED
+    assert calls == ["home", "browse", "like"]
+
+
+@pytest.mark.asyncio
+async def test_points_progress_stops_after_repair_round_limit(monkeypatch):
+    page = FakePage()
+    runner = BlablaTaskRunner(page, AppConfig(points_repair_rounds=2))
+    calls = []
+
+    async def settle(seconds=1.0):
+        return None
+
+    async def open_home():
+        calls.append("home")
+
+    async def do_browses():
+        calls.append("browse")
+        return TaskResult("浏览", TaskStatus.ALREADY_DONE)
+
+    async def points_progress_values():
+        return ["4 / 5", "5 / 5"]
+
+    monkeypatch.setattr(runner, "_settle", settle)
+    monkeypatch.setattr(runner, "open_home", open_home)
+    monkeypatch.setattr(runner, "do_browses", do_browses)
+    monkeypatch.setattr(runner, "_points_progress_values", points_progress_values)
+
+    result = await runner.verify_points_progress()
+
+    assert result.status == TaskStatus.FAILED
+    assert result.completed == 1
+    assert "已补做 2 轮" in result.message
+    assert calls == ["home", "browse", "home", "browse"]
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,7 @@ DEFAULT_TIMEOUT_MS = 15_000
 DEFAULT_MAX_LIKES = 5
 DEFAULT_MAX_BROWSES = 5
 DEFAULT_BROWSE_SECONDS = 1.0
+DEFAULT_POINTS_REPAIR_ROUNDS = 3
 DEFAULT_SLOW_MO_MS = 0
 DEFAULT_EXIT_WHEN_FAIL = True
 
@@ -35,6 +36,7 @@ class AppConfig:
     max_likes: int = DEFAULT_MAX_LIKES
     max_browses: int = DEFAULT_MAX_BROWSES
     browse_seconds: float = DEFAULT_BROWSE_SECONDS
+    points_repair_rounds: int = DEFAULT_POINTS_REPAIR_ROUNDS
     slow_mo_ms: int = DEFAULT_SLOW_MO_MS
     exit_when_fail: bool = DEFAULT_EXIT_WHEN_FAIL
 
@@ -60,6 +62,11 @@ def load_config(**overrides: Any) -> AppConfig:
         max_likes=_env_int("BLABLA_MAX_LIKES", DEFAULT_MAX_LIKES, minimum=0),
         max_browses=_env_int("BLABLA_MAX_BROWSES", DEFAULT_MAX_BROWSES, minimum=0),
         browse_seconds=_env_float("BLABLA_BROWSE_SECONDS", DEFAULT_BROWSE_SECONDS, minimum=0),
+        points_repair_rounds=_env_int(
+            "BLABLA_POINTS_REPAIR_ROUNDS",
+            DEFAULT_POINTS_REPAIR_ROUNDS,
+            minimum=0,
+        ),
         slow_mo_ms=_env_int("BLABLA_SLOW_MO_MS", DEFAULT_SLOW_MO_MS, minimum=0),
         exit_when_fail=_env_bool("BLABLA_EXIT_WHEN_FAIL", DEFAULT_EXIT_WHEN_FAIL),
     )
@@ -120,5 +127,7 @@ def _validate_config(config: AppConfig) -> None:
         raise ConfigError("任务次数上限不能为负数")
     if config.browse_seconds < 0:
         raise ConfigError("browse_seconds 不能为负数")
+    if config.points_repair_rounds < 0:
+        raise ConfigError("points_repair_rounds 不能为负数")
     if config.slow_mo_ms < 0:
         raise ConfigError("slow_mo_ms 不能为负数")

@@ -86,6 +86,7 @@ def add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-likes", type=int, dest="max_likes", help="点赞 / 重新点赞最大次数")
     parser.add_argument("--max-browses", type=int, dest="max_browses", help="浏览最大次数")
     parser.add_argument("--browse-seconds", type=float, dest="browse_seconds", help="每次浏览停留秒数")
+    parser.add_argument("--points-repair-rounds", type=int, dest="points_repair_rounds", help="奖励中心复核补做最大轮数")
     parser.add_argument("--slow-mo-ms", type=int, dest="slow_mo_ms", help="Playwright slow motion 调试延迟")
     parser.add_argument("--verbose", action="store_true", help="输出调试日志")
 
@@ -115,6 +116,7 @@ def _config_from_args(args: argparse.Namespace) -> AppConfig:
         "max_likes": args.max_likes,
         "max_browses": args.max_browses,
         "browse_seconds": args.browse_seconds,
+        "points_repair_rounds": args.points_repair_rounds,
         "slow_mo_ms": args.slow_mo_ms,
     }
     if args.headful and args.headless:
@@ -137,6 +139,7 @@ async def setup(config: AppConfig, *, wait_for_enter: bool = True) -> int:
         max_likes=config.max_likes,
         max_browses=config.max_browses,
         browse_seconds=config.browse_seconds,
+        points_repair_rounds=config.points_repair_rounds,
         slow_mo_ms=config.slow_mo_ms,
         exit_when_fail=config.exit_when_fail,
     )

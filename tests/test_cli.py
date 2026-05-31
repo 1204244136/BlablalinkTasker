@@ -16,6 +16,8 @@ def test_parser_accepts_run_options():
         "3",
         "--browse-seconds",
         "1.5",
+        "--points-repair-rounds",
+        "2",
     ])
 
     assert args.command == "run"
@@ -24,6 +26,7 @@ def test_parser_accepts_run_options():
     assert args.pause_on_finish is True
     assert args.max_likes == 3
     assert args.browse_seconds == 1.5
+    assert args.points_repair_rounds == 2
 
 
 def test_main_rejects_conflicting_head_modes():

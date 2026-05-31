@@ -17,6 +17,7 @@ from .selectors import DEFAULT_SELECTORS, SelectorSet
 LOGGER = logging.getLogger(__name__)
 PROGRESS_TEXT = "5 / 5"
 PROGRESS_PATTERN = re.compile(r"^(\d+)\s*/\s*(\d+)$")
+POINTS_TASK_ORDER = ("浏览", "点赞")
 
 
 @dataclass(slots=True)
@@ -181,41 +182,73 @@ class BlablaTaskRunner:
         task_name = "奖励中心复核"
         LOGGER.info("开始执行：%s", task_name)
 
-        await self.page.goto(self._points_url(), wait_until="domcontentloaded")
-        await self._settle()
-
         if self.dry_run:
             return TaskResult(task_name, TaskStatus.SKIPPED, "dry-run：未展开奖励中心进度区域", attempted=2)
 
-        if await self._is_visible(self.selectors.points_expand_button, timeout=2500):
-            await self.page.locator(self.selectors.points_expand_button).first.click()
-            await self._settle(0.8)
+        repair_rounds = 0
+        values = await self._load_points_progress_values()
 
-        values = await self._points_progress_values()
-        completed = sum(1 for value in values if self._is_complete_points_progress(value))
+        while len(values) >= 2 and not self._is_complete_points_snapshot(values):
+            missing_indexes = self._incomplete_points_task_indexes(values)
+            missing_names = [POINTS_TASK_ORDER[index] for index in missing_indexes]
+
+            if repair_rounds >= self.config.points_repair_rounds:
+                completed = sum(1 for value in values if self._is_complete_points_progress(value))
+                return TaskResult(
+                    task_name,
+                    TaskStatus.FAILED,
+                    (
+                        f"奖励中心进度未完成：已补做 {repair_rounds} 轮，"
+                        f"最后缺失 {'、'.join(missing_names)}，实际 {values}"
+                    ),
+                    attempted=2,
+                    completed=completed,
+                )
+
+            repair_rounds += 1
+            LOGGER.info(
+                "奖励中心进度异常：%s；第 %s/%s 轮回首页补做：%s",
+                values,
+                repair_rounds,
+                self.config.points_repair_rounds,
+                "、".join(missing_names),
+            )
+            await self._repair_points_tasks(missing_indexes)
+            values = await self._load_points_progress_values()
 
         if len(values) < 2:
+            completed = sum(1 for value in values if self._is_complete_points_progress(value))
             return TaskResult(
                 task_name,
                 TaskStatus.FAILED,
-                f"奖励中心进度文本不足：期望 2 个，实际 {len(values)} 个，读取到 {values}",
+                (
+                    f"奖励中心进度文本不足：期望 2 个，实际 {len(values)} 个，读取到 {values}"
+                    f"；已补做 {repair_rounds} 轮"
+                ),
                 attempted=2,
                 completed=completed,
             )
 
+        completed = sum(1 for value in values if self._is_complete_points_progress(value))
         if completed != 2:
             return TaskResult(
                 task_name,
                 TaskStatus.FAILED,
-                f"奖励中心进度未完成：期望 ['{PROGRESS_TEXT}', '{PROGRESS_TEXT}']，实际 {values}",
+                (
+                    f"奖励中心进度未完成：期望 ['{PROGRESS_TEXT}', '{PROGRESS_TEXT}']，"
+                    f"实际 {values}；已补做 {repair_rounds} 轮"
+                ),
                 attempted=2,
                 completed=completed,
             )
 
+        message = "奖励中心两个进度均为 5 / 5"
+        if repair_rounds:
+            message += f"（补做 {repair_rounds} 轮）"
         return TaskResult(
             task_name,
             TaskStatus.COMPLETED,
-            "奖励中心两个进度均为 5 / 5",
+            message,
             attempted=2,
             completed=2,
         )
@@ -230,6 +263,36 @@ class BlablaTaskRunner:
             return False
         current, target = (int(part) for part in match.groups())
         return current == 5 and target == 5
+
+    @classmethod
+    def _is_complete_points_snapshot(cls, values: list[str]) -> bool:
+        return len(values) >= 2 and all(cls._is_complete_points_progress(value) for value in values[:2])
+
+    @classmethod
+    def _incomplete_points_task_indexes(cls, values: list[str]) -> list[int]:
+        return [
+            index
+            for index, value in enumerate(values[: len(POINTS_TASK_ORDER)])
+            if not cls._is_complete_points_progress(value)
+        ]
+
+    async def _load_points_progress_values(self) -> list[str]:
+        await self.page.goto(self._points_url(), wait_until="domcontentloaded")
+        await self._settle()
+
+        if await self._is_visible(self.selectors.points_expand_button, timeout=2500):
+            await self.page.locator(self.selectors.points_expand_button).first.click()
+            await self._settle(0.8)
+
+        return await self._points_progress_values()
+
+    async def _repair_points_tasks(self, missing_indexes: list[int]) -> None:
+        await self.open_home()
+        for index in missing_indexes:
+            if index == 0:
+                await self.do_browses()
+            elif index == 1:
+                await self.do_likes()
 
     async def _close_post_or_go_back(self) -> None:
         if await self._is_visible(self.selectors.post_close, timeout=2500):

@@ -304,6 +304,7 @@ blablalink-tasker run --headful --verbose --pause-on-finish
 | `--slow-mo-ms 1000` | 每个 Playwright 操作放慢 1000 毫秒 |
 | `--max-likes 2` | 限制点赞 / 重新点赞次数 |
 | `--max-browses 2` | 限制浏览次数 |
+| `--points-repair-rounds 3` | 奖励中心复核补做最大轮数 |
 | `--timeout-ms 30000` | 增加页面操作超时时间 |
 
 ## 环境变量
@@ -315,8 +316,9 @@ blablalink-tasker run --headful --verbose --pause-on-finish
 | `BLABLA_HEADLESS` | `true` | 默认是否无头运行 |
 | `BLABLA_TIMEOUT_MS` | `15000` | 页面操作超时时间 |
 | `BLABLA_MAX_LIKES` | `5` | 点赞 / 重新点赞最大次数 |
-| `BLABLA_MAX_BROWSES` | `6` | 浏览最大次数 |
+| `BLABLA_MAX_BROWSES` | `5` | 浏览最大次数 |
 | `BLABLA_BROWSE_SECONDS` | `1.0` | 每次浏览停留秒数 |
+| `BLABLA_POINTS_REPAIR_ROUNDS` | `3` | 奖励中心复核补做最大轮数 |
 | `BLABLA_SLOW_MO_MS` | `0` | Playwright slow motion 调试延迟 |
 | `BLABLA_EXIT_WHEN_FAIL` | `true` | 失败时返回非零退出码 |
 

@@ -15,6 +15,7 @@ def test_load_config_defaults(monkeypatch):
         "BLABLA_MAX_LIKES",
         "BLABLA_MAX_BROWSES",
         "BLABLA_BROWSE_SECONDS",
+        "BLABLA_POINTS_REPAIR_ROUNDS",
         "BLABLA_SLOW_MO_MS",
         "BLABLA_EXIT_WHEN_FAIL",
     ]:
@@ -27,6 +28,7 @@ def test_load_config_defaults(monkeypatch):
     assert config.headless is True
     assert config.max_likes == 5
     assert config.max_browses == 5
+    assert config.points_repair_rounds == 3
 
 
 def test_load_config_env_overrides(monkeypatch):
@@ -34,6 +36,7 @@ def test_load_config_env_overrides(monkeypatch):
     monkeypatch.setenv("BLABLA_TIMEOUT_MS", "3000")
     monkeypatch.setenv("BLABLA_MAX_LIKES", "2")
     monkeypatch.setenv("BLABLA_BROWSE_SECONDS", "2.5")
+    monkeypatch.setenv("BLABLA_POINTS_REPAIR_ROUNDS", "4")
 
     config = load_config()
 
@@ -41,6 +44,7 @@ def test_load_config_env_overrides(monkeypatch):
     assert config.timeout_ms == 3000
     assert config.max_likes == 2
     assert config.browse_seconds == 2.5
+    assert config.points_repair_rounds == 4
 
 
 def test_load_config_rejects_invalid_bool(monkeypatch):
