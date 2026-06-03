@@ -17,6 +17,7 @@ from .selectors import DEFAULT_SELECTORS, SelectorSet
 LOGGER = logging.getLogger(__name__)
 PROGRESS_TEXT = "5 / 5"
 PROGRESS_PATTERN = re.compile(r"^(\d+)\s*/\s*(\d+)$")
+PROGRESS_SEARCH_PATTERN = re.compile(r"(\d+)\s*/\s*(\d+)")
 POINTS_TASK_ORDER = ("浏览", "点赞")
 
 
@@ -328,11 +329,30 @@ class BlablaTaskRunner:
         return indexes
 
     async def _points_progress_values(self) -> list[str]:
-        locator = self.page.locator(self.selectors.points_progress_text)
+        selectors = (self.selectors.points_progress_text, *self.selectors.points_progress_fallback_texts)
+        best_values: list[str] = []
+        seen: set[str] = set()
+
+        for index, selector in enumerate(selectors):
+            if selector in seen:
+                continue
+            seen.add(selector)
+
+            timeout = self.config.timeout_ms if index == 0 else min(self.config.timeout_ms, 1500)
+            values = await self._points_progress_values_by_selector(selector, timeout=timeout)
+            if len(values) >= 2:
+                return values[:2]
+            if len(values) > len(best_values):
+                best_values = values
+
+        return best_values[:2]
+
+    async def _points_progress_values_by_selector(self, selector: str, *, timeout: int) -> list[str]:
+        locator = self.page.locator(selector).filter(has_text=PROGRESS_SEARCH_PATTERN)
         try:
-            await locator.filter(has_text=PROGRESS_PATTERN).first.wait_for(
+            await locator.first.wait_for(
                 state="visible",
-                timeout=self.config.timeout_ms,
+                timeout=timeout,
             )
         except PlaywrightTimeoutError:
             return []
@@ -343,12 +363,20 @@ class BlablaTaskRunner:
             target = locator.nth(index)
             try:
                 if await target.is_visible():
-                    text = " ".join((await target.inner_text()).split())
-                    if PROGRESS_PATTERN.match(text):
-                        values.append(text)
+                    progress = self._extract_points_progress_text(await target.inner_text())
+                    if progress is not None:
+                        values.append(progress)
             except PlaywrightTimeoutError:
                 continue
         return values[:2]
+
+    @staticmethod
+    def _extract_points_progress_text(value: str) -> str | None:
+        match = PROGRESS_SEARCH_PATTERN.search(" ".join(value.split()))
+        if match is None:
+            return None
+        current, target = match.groups()
+        return f"{current} / {target}"
 
     async def _click_indexed_element(self, selector: str, index: int) -> None:
         target = self.page.locator(selector).nth(index)

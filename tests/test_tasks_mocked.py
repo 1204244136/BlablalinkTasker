@@ -233,6 +233,40 @@ async def test_points_progress_expands_and_passes_when_two_values_complete():
 
 
 @pytest.mark.asyncio
+async def test_points_progress_fallback_passes_when_primary_selector_is_missing():
+    expand_selector = runner_selector("points_expand_button")
+    progress_selector = runner_selector("points_progress_text")
+    fallback_selector = runner_selector("points_progress_fallback_texts")[0]
+    page = FakePage(
+        {expand_selector: 1, progress_selector: 0, fallback_selector: 2},
+        texts={fallback_selector: ["5 / 5", "5 / 5"]},
+    )
+    runner = BlablaTaskRunner(page, AppConfig())
+
+    result = await runner.verify_points_progress()
+
+    assert result.status == TaskStatus.COMPLETED
+    assert result.completed == 2
+
+
+@pytest.mark.asyncio
+async def test_points_progress_fallback_extracts_values_from_longer_text():
+    expand_selector = runner_selector("points_expand_button")
+    progress_selector = runner_selector("points_progress_text")
+    fallback_selector = runner_selector("points_progress_fallback_texts")[0]
+    page = FakePage(
+        {expand_selector: 1, progress_selector: 0, fallback_selector: 2},
+        texts={fallback_selector: ["Browse mission 5 / 5", "Like mission 5 / 5"]},
+    )
+    runner = BlablaTaskRunner(page, AppConfig())
+
+    result = await runner.verify_points_progress()
+
+    assert result.status == TaskStatus.COMPLETED
+    assert result.completed == 2
+
+
+@pytest.mark.asyncio
 async def test_points_progress_fails_when_one_value_is_incomplete():
     expand_selector = runner_selector("points_expand_button")
     progress_selector = runner_selector("points_progress_text")

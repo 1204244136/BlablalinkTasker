@@ -29,6 +29,12 @@ class SelectorSet:
         r".\!text-\[color\:var\(--text-3\)\]"
         r".opacity-60"
     )
+    points_progress_fallback_texts: tuple[str, ...] = (
+        r".font-\[Inter\].text-\[length\:13px\]",
+        r".text-\[length\:13px\]",
+        "div",
+        "span",
+    )
     reward_title: str = (
         r".text-\[length\:11px\]"
         r".line-clamp-2"
