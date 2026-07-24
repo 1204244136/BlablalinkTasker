@@ -68,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     redeem_parser = subparsers.add_parser("redeem", help="兑换奖励中心奖励")
     add_common_options(redeem_parser)
     redeem_parser.add_argument("--force", action="store_true", help="忽略本月兑换记录，强制尝试兑换")
+    redeem_parser.add_argument("--dry-run", action="store_true", help="只显示兑换计划，不点击兑换")
     redeem_parser.add_argument("--pause-on-finish", action="store_true", help="兑换结束后暂停，按 Enter 后再关闭浏览器")
 
     diagnose_parser = subparsers.add_parser("diagnose", help="诊断会话和页面选择器")
@@ -90,8 +91,8 @@ def add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--headful", action="store_true", help="显示浏览器窗口运行")
     parser.add_argument("--headless", action="store_true", help="强制无头运行")
     parser.add_argument("--timeout-ms", type=int, dest="timeout_ms", help="页面操作超时时间")
-    parser.add_argument("--max-likes", type=int, dest="max_likes", help="点赞 / 重新点赞最大次数")
-    parser.add_argument("--max-browses", type=int, dest="max_browses", help="浏览最大次数")
+    parser.add_argument("--max-likes", type=int, dest="max_likes", help="整次运行累计点赞动作上限")
+    parser.add_argument("--max-browses", type=int, dest="max_browses", help="整次运行累计浏览动作上限")
     parser.add_argument("--browse-seconds", type=float, dest="browse_seconds", help="每次浏览停留秒数")
     parser.add_argument("--points-repair-rounds", type=int, dest="points_repair_rounds", help="奖励中心复核补做最大轮数")
     parser.add_argument("--slow-mo-ms", type=int, dest="slow_mo_ms", help="Playwright slow motion 调试延迟")
@@ -106,7 +107,12 @@ async def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "run":
         return await run_tasks(config, dry_run=args.dry_run, pause_on_finish=args.pause_on_finish)
     if args.command == "redeem":
-        return await redeem_rewards(config, force=args.force, pause_on_finish=args.pause_on_finish)
+        return await redeem_rewards(
+            config,
+            force=args.force,
+            dry_run=args.dry_run,
+            pause_on_finish=args.pause_on_finish,
+        )
     if args.command == "diagnose":
         return await diagnose(config)
     if args.command == "renew-session":
@@ -183,10 +189,16 @@ async def run_tasks(config: AppConfig, *, dry_run: bool = False, pause_on_finish
     return 1 if config.exit_when_fail else EXIT_OK
 
 
-async def redeem_rewards(config: AppConfig, *, force: bool = False, pause_on_finish: bool = False) -> int:
+async def redeem_rewards(
+    config: AppConfig,
+    *,
+    force: bool = False,
+    dry_run: bool = False,
+    pause_on_finish: bool = False,
+) -> int:
     config.ensure_session_exists()
     async with browser_page(config, use_session=True) as (_context, page):
-        runner = RewardRedemptionRunner(page, config, force=force)
+        runner = RewardRedemptionRunner(page, config, force=force, dry_run=dry_run)
         summary = await runner.redeem_all()
 
         for line in summary.format_lines():

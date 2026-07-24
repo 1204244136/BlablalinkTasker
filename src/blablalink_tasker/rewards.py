@@ -14,40 +14,30 @@ from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 from .browser import ensure_parent_dir
 from .config import AppConfig
-from .errors import SelectorChangedError
+from .errors import LoginRequiredError, SelectorChangedError
 from .models import TaskResult, TaskStatus, TaskSummary
 from .selectors import DEFAULT_SELECTORS, SelectorSet
 
 LOGGER = logging.getLogger(__name__)
 
-WELCOME_TIER_ID = "welcome_gift"
-GEM_COSTS_ASC = (499, 999, 1999, 4999)
-GEM_COSTS_DESC = tuple(reversed(GEM_COSTS_ASC))
-GEM_AMOUNTS_BY_COST = {
-    499: 30,
-    999: 60,
-    1999: 120,
-    4999: 320,
-}
+CARD_PROGRESS_PATTERN = re.compile(r"^(\d+)\s*/\s*(\d+)$")
+COST_PATTERN = re.compile(r"^\d[\d,]*$")
+PERIOD_LABELS = {"daily", "weekly", "monthly"}
 
 
 @dataclass(frozen=True, slots=True)
-class RewardTier:
-    """One monthly reward tier that can be redeemed with tokens."""
+class RewardItem:
+    """One reward card parsed from the current Reward Center catalog."""
 
-    tier_id: str
     name: str
-    keyword: str
     cost: int
+    card_index: int
+    redeemed: bool = False
 
-
-REWARD_TIERS: tuple[RewardTier, ...] = (
-    *(
-        RewardTier(f"gem_{cost}", f"珠宝×{GEM_AMOUNTS_BY_COST[cost]}", "Gem", cost)
-        for cost in GEM_COSTS_DESC
-    ),
-    RewardTier(WELCOME_TIER_ID, "欢迎礼物（芯尘×30）", "Welcome Gift", 1),
-)
+    @property
+    def tier_id(self) -> str:
+        normalized = " ".join(self.name.casefold().split())
+        return f"{self.cost}:{normalized}"
 
 
 class RedemptionRecordStore:
@@ -92,18 +82,59 @@ class RedemptionRecordStore:
         )
 
 
-def plan_redemptions(balance: int, purchased: dict[str, str], *, force: bool = False) -> list[RewardTier]:
-    """Choose reward tiers using current balance and monthly purchase records."""
+def parse_reward_card(text: str, card_index: int) -> RewardItem | None:
+    """Parse the visible text of one monthly reward card."""
+
+    lines = [" ".join(line.split()) for line in text.splitlines() if line.strip()]
+    progress: tuple[int, int] | None = None
+    cost: int | None = None
+    title_candidates: list[str] = []
+
+    for line in lines:
+        progress_match = CARD_PROGRESS_PATTERN.fullmatch(line)
+        if progress_match is not None:
+            progress = tuple(int(part) for part in progress_match.groups())
+            continue
+        if line.casefold() in PERIOD_LABELS:
+            continue
+        if COST_PATTERN.fullmatch(line):
+            cost = int(line.replace(",", ""))
+            continue
+        title_candidates.append(line)
+
+    if progress is None or cost is None or not title_candidates:
+        return None
+
+    current, limit = progress
+    return RewardItem(
+        name=title_candidates[-1],
+        cost=cost,
+        card_index=card_index,
+        redeemed=current >= limit,
+    )
+
+
+def plan_redemptions(
+    balance: int,
+    rewards: list[RewardItem],
+    purchased: dict[str, str],
+    *,
+    force: bool = False,
+) -> list[RewardItem]:
+    """Choose affordable cards by cost, preserving page order for ties."""
 
     remaining = balance
-    planned: list[RewardTier] = []
-    for tier in REWARD_TIERS:
-        if not force and tier.tier_id in purchased:
+    planned: list[RewardItem] = []
+    ordered = sorted(rewards, key=lambda item: (-item.cost, item.card_index))
+    for item in ordered:
+        if item.redeemed:
             continue
-        if remaining < tier.cost:
+        if not force and item.tier_id in purchased:
             continue
-        planned.append(tier)
-        remaining -= tier.cost
+        if remaining < item.cost:
+            continue
+        planned.append(item)
+        remaining -= item.cost
     return planned
 
 
@@ -117,6 +148,7 @@ class RewardRedemptionRunner:
         selectors: SelectorSet = DEFAULT_SELECTORS,
         *,
         force: bool = False,
+        dry_run: bool = False,
         now: datetime | None = None,
         record_store: RedemptionRecordStore | None = None,
     ) -> None:
@@ -124,6 +156,7 @@ class RewardRedemptionRunner:
         self.config = config
         self.selectors = selectors
         self.force = force
+        self.dry_run = dry_run
         self.now = now or datetime.now()
         self.record_store = record_store or RedemptionRecordStore(config.redemption_record_path)
 
@@ -131,11 +164,14 @@ class RewardRedemptionRunner:
         await self._open_points()
         await self._wait_for_rewards_loaded()
         balance = await self._read_token_balance()
+        rewards = await self._read_reward_catalog()
+        if not rewards:
+            raise SelectorChangedError("奖励卡片已加载，但无法解析任何奖励名称、库存和价格")
         month = self.now.strftime("%Y-%m")
         purchased = self.record_store.load(month)
-        tiers = plan_redemptions(balance, purchased, force=self.force)
+        planned = plan_redemptions(balance, rewards, purchased, force=self.force)
 
-        if not tiers:
+        if not planned:
             return TaskSummary(
                 login_ok=True,
                 results=[
@@ -147,104 +183,162 @@ class RewardRedemptionRunner:
                 ],
             )
 
+        if self.dry_run:
+            return TaskSummary(
+                login_ok=True,
+                results=[
+                    TaskResult(
+                        item.name,
+                        TaskStatus.SKIPPED,
+                        f"dry-run：计划消耗 {item.cost} 代币",
+                        attempted=1,
+                    )
+                    for item in planned
+                ],
+            )
+
         results: list[TaskResult] = []
-        for tier in tiers:
-            result = await self._redeem_tier(tier, month)
+        for item in planned:
+            result = await self._redeem_item(item, month)
             results.append(result)
             if not result.ok:
                 break
 
         return TaskSummary(login_ok=True, results=results)
 
-    async def _redeem_tier(self, tier: RewardTier, month: str) -> TaskResult:
+    async def _redeem_item(self, item: RewardItem, month: str) -> TaskResult:
         await self._open_points()
         await self._wait_for_rewards_loaded()
-        reward_index = await self._find_reward_index(tier)
+        balance_before = await self._read_token_balance()
+        reward_index = await self._find_reward_index(item)
         if reward_index is None:
             return TaskResult(
-                tier.name,
+                item.name,
                 TaskStatus.FAILED,
-                f"未找到可兑换卡片：{tier.keyword} / {tier.cost}",
+                f"未找到可兑换卡片：{item.name} / {item.cost}",
                 attempted=1,
             )
 
-        LOGGER.info("兑换奖励：%s（消耗 %s）", tier.name, tier.cost)
+        LOGGER.info("兑换奖励：%s（消耗 %s）", item.name, item.cost)
         try:
-            target = self.page.locator(self.selectors.reward_title).nth(reward_index)
+            card = self.page.locator(self.selectors.reward_card).nth(reward_index)
+            target = card.locator(self.selectors.reward_title).first
             await target.scroll_into_view_if_needed()
             await target.click()
-            await self._settle(1.0)
+            await self.page.locator(self.selectors.reward_modal_title).first.wait_for(
+                state="visible",
+                timeout=self.config.timeout_ms,
+            )
+
+            loading = self.page.locator(self.selectors.reward_loading_text).first
+            try:
+                if await loading.is_visible():
+                    await loading.wait_for(state="hidden", timeout=self.config.timeout_ms)
+            except PlaywrightTimeoutError:
+                return TaskResult(
+                    item.name,
+                    TaskStatus.FAILED,
+                    "兑换详情中的角色信息未加载完成",
+                    attempted=1,
+                )
+
             await self.page.locator(self.selectors.reward_redeem_button).first.click()
-            await self._settle(1.0)
+            await self._settle(0.5)
+
+            if await self._is_visible(self.selectors.reward_confirm_button, timeout=1200):
+                await self.page.locator(self.selectors.reward_confirm_button).first.click()
+                await self._settle(0.5)
         except PlaywrightTimeoutError as exc:
             return TaskResult(
-                tier.name,
+                item.name,
                 TaskStatus.FAILED,
-                f"兑换按钮或奖励卡片不可用：{tier.keyword} / {tier.cost}",
+                f"兑换按钮或奖励卡片不可用：{item.name} / {item.cost}",
                 attempted=1,
             )
         except Exception as exc:
-            raise SelectorChangedError(f"兑换奖励失败：{tier.keyword} / {tier.cost}") from exc
+            raise SelectorChangedError(f"兑换奖励失败：{item.name} / {item.cost}") from exc
 
-        self.record_store.mark_purchased(month, tier.tier_id, self.now)
-        return TaskResult(tier.name, TaskStatus.COMPLETED, "已点击兑换", attempted=1, completed=1)
+        if not await self._verify_redemption(item, balance_before):
+            return TaskResult(
+                item.name,
+                TaskStatus.FAILED,
+                "点击兑换后余额和月度库存均未变化，未写入本地记录",
+                attempted=1,
+            )
 
-    async def _find_reward_index(self, tier: RewardTier) -> int | None:
-        locator = self.page.locator(self.selectors.reward_title)
+        self.record_store.mark_purchased(month, item.tier_id, self.now)
+        return TaskResult(item.name, TaskStatus.COMPLETED, "兑换结果已确认", attempted=1, completed=1)
+
+    async def _find_reward_index(self, expected: RewardItem) -> int | None:
+        for item in await self._read_reward_catalog():
+            if item.tier_id == expected.tier_id and not item.redeemed:
+                return item.card_index
+        return None
+
+    async def _read_reward_catalog(self) -> list[RewardItem]:
+        locator = self.page.locator(self.selectors.reward_card)
         total = await locator.count()
-        matches: list[int] = []
+        rewards: list[RewardItem] = []
         for index in range(total):
-            item = locator.nth(index)
+            card = locator.nth(index)
             try:
-                if not await item.is_visible():
+                if not await card.is_visible():
                     continue
-                text = " ".join((await item.inner_text()).split())
+                card_text = await card.inner_text()
+                parsed = parse_reward_card(card_text, index)
             except PlaywrightTimeoutError:
                 continue
-            if tier.keyword.casefold() in text.casefold():
-                matches.append(index)
+            if parsed is not None:
+                rewards.append(parsed)
+            else:
+                LOGGER.warning("无法解析奖励卡片 %s：%r", index, " ".join(card_text.split())[:160])
+        return rewards
 
-        if tier.keyword == "Welcome Gift":
-            return matches[0] if matches else None
-
-        gem_cost_to_index = dict(zip(GEM_COSTS_ASC, matches))
-        return gem_cost_to_index.get(tier.cost)
+    async def _verify_redemption(self, expected: RewardItem, balance_before: int) -> bool:
+        for attempt in range(3):
+            await self._open_points()
+            await self._wait_for_rewards_loaded()
+            balance_after = await self._read_token_balance()
+            current = next(
+                (
+                    item
+                    for item in await self._read_reward_catalog()
+                    if item.tier_id == expected.tier_id
+                ),
+                None,
+            )
+            stock_updated = current is not None and current.redeemed
+            balance_updated = balance_after <= balance_before - expected.cost
+            if stock_updated or balance_updated:
+                return True
+            if attempt < 2:
+                await self._settle(0.8)
+        return False
 
     async def _open_points(self) -> None:
         await self.page.goto(self._points_url(), wait_until="domcontentloaded")
-        await self._settle()
+        await self._settle(0.3)
 
     def _points_url(self) -> str:
         return self.config.base_url.rstrip("/") + "/points"
 
     async def _wait_for_rewards_loaded(self) -> None:
         try:
-            await self.page.locator(self.selectors.reward_title).first.wait_for(
+            await self.page.locator(self.selectors.reward_card).first.wait_for(
                 state="visible",
                 timeout=self.config.timeout_ms,
             )
         except PlaywrightTimeoutError as exc:
+            if await self._is_visible(self.selectors.session_expired_message, timeout=500):
+                raise LoginRequiredError("奖励中心提示会话已过期，请重新运行 setup。") from exc
+            if await self._is_visible(self.selectors.game_binding_link, timeout=500):
+                raise LoginRequiredError("当前账号未绑定游戏角色，无法读取奖励中心。") from exc
             raise SelectorChangedError("奖励中心奖励列表未加载完成") from exc
 
-        deadline = asyncio.get_running_loop().time() + (self.config.timeout_ms / 1000)
-        last_balance: int | None = None
-        while asyncio.get_running_loop().time() < deadline:
-            try:
-                last_balance = await self._read_token_balance_value(allow_zero=True)
-            except SelectorChangedError:
-                await self._settle(0.3)
-                continue
-            if last_balance > 0:
-                return
-            await self._settle(0.5)
-
-        if last_balance == 0:
-            LOGGER.warning("奖励中心代币数量仍为 0，可能是真的没有代币，也可能页面未完全刷新")
-            return
-        raise SelectorChangedError("奖励中心代币数量未加载完成")
+        await self._read_token_balance_value(allow_zero=True)
 
     async def _read_token_balance(self) -> int:
-        return await self._read_token_balance_value(allow_zero=False)
+        return await self._read_token_balance_value(allow_zero=True)
 
     async def _read_token_balance_value(self, *, allow_zero: bool = False) -> int:
         locator = self.page.locator(self.selectors.reward_token_amount)
@@ -269,6 +363,13 @@ class RewardRedemptionRunner:
                     return balance
 
         raise SelectorChangedError("奖励中心代币数量不是有效数字")
+
+    async def _is_visible(self, selector: str, *, timeout: int) -> bool:
+        try:
+            await self.page.locator(selector).first.wait_for(state="visible", timeout=timeout)
+            return True
+        except PlaywrightTimeoutError:
+            return False
 
     async def _settle(self, seconds: float = 1.0) -> None:
         await asyncio.sleep(max(seconds, 0))

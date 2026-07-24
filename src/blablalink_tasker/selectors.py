@@ -11,30 +11,31 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class SelectorSet:
-    # CSS class names containing Tailwind square brackets/colon need escaping.
-    check_in_button: str = r"div.w-\[85\%\]"
-    check_in_close: str = "i.absolute-center"
-    like_target: str = r".recommend > .relative:nth-child(7) > div .flex-row > .text-\[length\:12px\]"
-    browse_target: str = r".recommend > .relative:nth-child(7) > div .inline-flex:nth-child(2) > .text-\[length\:12px\]"
-    post_close: str = ".fill-current path:nth-child(1)"
-    points_expand_button: str = (
-        r".flex.items-center.justify-center.h-\[16px\].w-\[43px\].bg-black.btn-mask.cursor-pointer"
+    cookie_close_button: str = "#onetrust-close-btn-container button"
+    check_in_button: str = 'aside[data-cname="pc-tools"] button:has-text("Sign In")'
+    check_in_done: str = 'aside[data-cname="pc-tools"] button:has-text("Done")'
+    check_in_success_message: str = 'text="Sign In Success"'
+    authenticated_points_balance: str = 'aside[data-cname="pc-tools"] p.tabular-nums'
+    logged_out_marker: str = 'aside[data-cname="pc-tools"] p:text-is("Daily Check-in")'
+    like_target: str = (
+        ".recommend .card-item "
+        ".inline-flex.items-center.justify-center.cursor-pointer.flex-row "
+        'svg[viewBox="0 0 48 48"]'
     )
-    points_progress_text: str = (
-        r".font-\[Inter\]"
-        r".text-\[length\:13px\]"
-        r".text-\[color\:var\(--color-white\)\]"
-        r".leading-\[16px\]"
-        r".font-medium"
-        r".\!text-\[color\:var\(--text-3\)\]"
-        r".opacity-60"
+    browse_target: str = ".recommend .card-item > .font-bold.line-clamp-2"
+    home_event_dialog: str = '[role="dialog"]:has(h2)'
+    points_expand_button: str = ".btn-mask.cursor-pointer"
+    points_browse_task_row: str = (
+        'xpath=//*[normalize-space(text())="Browse 5 posts"]'
+        '/ancestor::*[@data-cname="index"][1]'
     )
-    points_progress_fallback_texts: tuple[str, ...] = (
-        r".font-\[Inter\].text-\[length\:13px\]",
-        r".text-\[length\:13px\]",
-        "div",
-        "span",
+    points_like_task_row: str = (
+        'xpath=//*[normalize-space(text())="Like 5 posts"]'
+        '/ancestor::*[@data-cname="index"][1]'
     )
+    session_expired_message: str = 'text="Your session has expired, please log in again."'
+    game_binding_link: str = 'button:has-text("Link")'
+    reward_card: str = ".masonry-item"
     reward_title: str = (
         r".text-\[length\:11px\]"
         r".line-clamp-2"
@@ -43,26 +44,15 @@ class SelectorSet:
         r".text-\[color\:var\(--other-6\)\]"
         r".leading-\[14px\]"
     )
-    reward_redeem_button: str = (
-        r".flex"
-        r".cursor-pointer"
-        r".justify-center"
-        r".h-\[40px\]"
-        r".p-\[5px\]"
-        r".text-\[length\:14px\]"
-        r".leading-\[16px\]"
-        r".font-bold"
-        r".items-center"
-        r".text-\[color\:var\(--color-white\)\]"
-        r".bg-\[color\:var\(--brand-1\)\]"
-        r".mb-\[6px\]"
-    )
+    reward_redeem_button: str = 'text="Redeem"'
+    reward_modal_title: str = 'text="Redeem Detail"'
+    reward_loading_text: str = 'text="Loading"'
+    reward_confirm_button: str = 'text="Confirm"'
     reward_token_amount: str = (
+        r".flex.items-center.w-full.justify-between.mt-\[8px\].px-\[12px\] "
         r".font-\[DINNextLTProBold\]"
         r".text-\[color\:var\(--other-6\)\]"
-        r".mt-\[4px\]"
         r".text-\[length\:20px\]"
-        r".leading-\[1\]"
     )
 
     login_links: tuple[str, ...] = (

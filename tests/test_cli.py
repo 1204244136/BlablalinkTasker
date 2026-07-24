@@ -35,6 +35,7 @@ def test_parser_accepts_redeem_options():
         "redeem",
         "--headful",
         "--force",
+        "--dry-run",
         "--pause-on-finish",
         "--redemption-record-path",
         "redemptions.json",
@@ -43,6 +44,7 @@ def test_parser_accepts_redeem_options():
     assert args.command == "redeem"
     assert args.headful is True
     assert args.force is True
+    assert args.dry_run is True
     assert args.pause_on_finish is True
     assert args.redemption_record_path == Path("redemptions.json")
 
