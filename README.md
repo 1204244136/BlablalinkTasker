@@ -2,7 +2,7 @@
 
 Blablalink 社区任务命令行自动化工具。
 
-本项目用于在命令行中完成 Blablalink / NIKKE 社区每日任务。当前版本基于 Python + Playwright，通过浏览器自动化执行网页上的签到、点赞 / 重新点赞、浏览等任务。
+本项目用于在命令行中完成 Blablalink / NIKKE 社区每日任务。当前版本基于 Python + Playwright，通过浏览器自动化执行网页签到、点赞和浏览帖子任务。
 
 > 本工具不会收集或保存账号密码，不会绕过 CAPTCHA、人机验证或网站风控。如果登录状态失效，请重新运行 `setup` 手动登录。
 
@@ -13,7 +13,7 @@ Blablalink 社区任务命令行自动化工具。
 - 单独兑换奖励中心月度奖励
 - 支持无头运行，适合本地定时任务
 - 支持可视化调试模式
-- 支持 dry-run 检查任务入口
+- 支持 dry-run 检查每日任务入口或预览奖励兑换规划
 - 支持执行完成后暂停浏览器，方便确认结果
 
 ## 运行环境
@@ -41,6 +41,7 @@ Blablalink 社区任务命令行自动化工具。
 - [调试命令](#调试命令)
 - [Windows 任务计划程序定时运行](#windows-任务计划程序定时运行)
 - [常见问题](#常见问题)
+- [开发与贡献](#开发与贡献)
 - [安全说明](#安全说明)
 
 ## 方法 1：在自己电脑上运行
@@ -109,6 +110,12 @@ blablalink-tasker run
 
 默认会无窗口执行任务。正常情况下，执行结束后终端会输出每日任务摘要。
 
+新版网站的每日任务包括网页签到、点赞 5 篇帖子和浏览 5 篇帖子。奖励中心默认只显示浏览任务，点击每日任务下方的展开按钮后可以看到点赞任务。
+
+完整流程开始时会先读取奖励中心中 `Browse` 和 `Like` 的当前进度，只执行距离每日目标尚缺少的次数。首页出现活动弹窗时，程序会自动关闭后再继续执行任务。
+
+执行点赞任务时，程序会选择尚未点赞的图标并直接点击，各次点赞之间会保留操作间隔；执行浏览任务时，会按帖子详情页 URL 去重，避免重复浏览同一篇帖子。
+
 如果你使用的启动器不方便直接填写命令行程序和参数，可以使用仓库内置的批处理文件：
 
 ```text
@@ -118,12 +125,11 @@ blablalink-tasker run
 该文件会自动切换到项目目录并执行：
 
 ```powershell
-blablalink-tasker renew-session --verbose
 blablalink-tasker run
 blablalink-tasker redeem
 ```
 
-也就是说，使用 `日常运行.bat` 时会先尝试续期登录会话，再完成每日任务，最后根据当月兑换记录自动兑换奖励中心可购买的月度奖励。
+也就是说，使用 `日常运行.bat` 时会先完成每日任务，再根据当月兑换记录自动兑换奖励中心可购买的月度奖励。该批处理文件不会自动执行 `renew-session`。
 
 ## 会话续期
 
@@ -141,20 +147,7 @@ blablalink-tasker renew-session --verbose
 blablalink-tasker setup
 ```
 
-如果使用仓库内置的 `日常运行.bat`，脚本会先执行：
-
-```powershell
-blablalink-tasker renew-session --verbose
-```
-
-然后再执行每日任务和奖励兑换：
-
-```powershell
-blablalink-tasker run
-blablalink-tasker redeem
-```
-
-续期失败不会阻止日常任务继续执行；日常任务失败时仍会尝试奖励兑换。如果日常任务也失败，再重新运行 `blablalink-tasker setup`。
+仓库内置的 `日常运行.bat` 不会自动续期；如需续期，请单独执行上述命令。会话已经失效时，重新运行 `blablalink-tasker setup`。
 
 ## 奖励兑换
 
@@ -164,19 +157,9 @@ blablalink-tasker redeem
 blablalink-tasker redeem
 ```
 
-兑换会读取奖励中心当前代币数量，并优先按大档位兑换珠宝：`4999`、`1999`、`999`、`499`。如果剩余代币足够，也会兑换欢迎礼物（芯尘×30）。
+兑换器会读取奖励中心当前代币数量和月度卡片，不会硬编码珠宝或欢迎礼物等固定奖励。它会按代币花费从高到低生成兑换规划；花费相同时，保持卡片在页面中的顺序。
 
-对应奖励为：
-
-| 奖励 | 消耗 |
-| --- | --- |
-| 珠宝×320 | `4999` |
-| 珠宝×120 | `1999` |
-| 珠宝×60 | `999` |
-| 珠宝×30 | `499` |
-| 欢迎礼物（芯尘×30） | `1` |
-
-每个档位每月只会尝试一次，记录保存到：
+已处理的月度卡片会写入兑换记录，避免当月重复尝试。记录保存到：
 
 ```text
 .blablalink/redemptions.json
@@ -187,6 +170,14 @@ blablalink-tasker redeem
 ```powershell
 blablalink-tasker redeem --force
 ```
+
+如果只想查看本次兑换规划，不实际兑换：
+
+```powershell
+blablalink-tasker redeem --dry-run
+```
+
+该命令会读取当前月度卡片和代币数量并显示规划，不会点击兑换。
 
 ## MXU 自定义程序联动 MDA
 
@@ -206,7 +197,7 @@ MDA 是一个 NIKKE 自动化脚本项目，MXU 是 MDA 使用的 UI 框架。MX
 - 已运行时跳过：建议开启
 - 通过 cmd 启动：一般可以关闭；如果启动异常，再尝试开启
 
-`日常运行.bat` 会先切换到脚本所在目录，再执行日常任务。这样即使 MXU 从其他工作目录启动，也能正确找到 `.blablalink/storage_state.json`。
+`日常运行.bat` 会先切换到脚本所在目录，再依次执行每日任务和奖励兑换。这样即使 MXU 从其他工作目录启动，也能正确找到 `.blablalink/storage_state.json`。
 
 ### 首次使用注意
 
@@ -250,14 +241,22 @@ blablalink-tasker run --headful --verbose --slow-mo-ms 1000 --pause-on-finish
 blablalink-tasker run --headful --verbose --dry-run
 ```
 
-该命令只检查任务入口是否能找到，不会点击签到、点赞或浏览按钮。
+该命令只检查每日任务入口是否能找到，不会点击网页签到、点赞或浏览帖子。
+
+### 预览奖励兑换规划
+
+```powershell
+blablalink-tasker redeem --headful --verbose --dry-run
+```
+
+该命令会显示当前月度卡片的兑换顺序和规划，不会实际兑换。
 
 ### 限制测试次数
 
 调试时建议先少量执行：
 
 ```powershell
-blablalink-tasker run --headful --verbose --slow-mo-ms 1000 --max-likes 2 --max-browses 2 --pause-on-finish
+blablalink-tasker run --headful --verbose --slow-mo-ms 1000 --max-likes 1 --max-browses 1 --pause-on-finish
 ```
 
 确认没有问题后，再运行完整任务：
@@ -265,6 +264,8 @@ blablalink-tasker run --headful --verbose --slow-mo-ms 1000 --max-likes 2 --max-
 ```powershell
 blablalink-tasker run --headful --verbose --slow-mo-ms 1000 --pause-on-finish
 ```
+
+`--max-likes` 和 `--max-browses` 是整次 `run` 的累计动作上限，包括首次执行和奖励中心复核后的补做。例如设置为 `1` 时，本次运行最多只会点赞或浏览 1 次，不会在补做阶段重新获得额度。
 
 ### 诊断登录和选择器状态
 
@@ -276,7 +277,7 @@ blablalink-tasker diagnose --headful --verbose
 
 - 当前会话是否可能已登录
 - 页面标题和 URL
-- 签到、点赞、浏览等关键选择器是否可见
+- 网页签到、点赞、浏览等关键选择器是否可见
 
 诊断命令不会点击任务按钮。
 
@@ -339,12 +340,12 @@ blablalink-tasker redeem --headful --verbose --pause-on-finish
 | `--headful` | 显示浏览器窗口 |
 | `--headless` | 强制无头运行 |
 | `--verbose` | 输出详细日志 |
-| `--dry-run` | 只检查任务入口，不点击 |
+| `--dry-run` | `run` 时只检查任务入口；`redeem` 时只显示兑换规划，均不实际点击 |
 | `--force` | `redeem` 时忽略本月兑换记录，强制尝试兑换 |
 | `--pause-on-finish` | 执行完成后等待 Enter 再关闭浏览器 |
 | `--slow-mo-ms 1000` | 每个 Playwright 操作放慢 1000 毫秒 |
-| `--max-likes 2` | 限制点赞 / 重新点赞次数 |
-| `--max-browses 2` | 限制浏览次数 |
+| `--max-likes 2` | 整次 `run`（含复核补做）的累计点赞动作上限 |
+| `--max-browses 2` | 整次 `run`（含复核补做）的累计浏览动作上限 |
 | `--points-repair-rounds 3` | 奖励中心复核补做最大轮数 |
 | `--redemption-record-path redemptions.json` | 指定奖励兑换记录路径 |
 | `--timeout-ms 30000` | 增加页面操作超时时间 |
@@ -358,8 +359,8 @@ blablalink-tasker redeem --headful --verbose --pause-on-finish
 | `BLABLA_REDEMPTION_RECORD_PATH` | `.blablalink/redemptions.json` | 奖励兑换记录文件 |
 | `BLABLA_HEADLESS` | `true` | 默认是否无头运行 |
 | `BLABLA_TIMEOUT_MS` | `15000` | 页面操作超时时间 |
-| `BLABLA_MAX_LIKES` | `5` | 点赞 / 重新点赞最大次数 |
-| `BLABLA_MAX_BROWSES` | `5` | 浏览最大次数 |
+| `BLABLA_MAX_LIKES` | `5` | 整次 `run`（含复核补做）的累计点赞动作上限 |
+| `BLABLA_MAX_BROWSES` | `5` | 整次 `run`（含复核补做）的累计浏览动作上限 |
 | `BLABLA_BROWSE_SECONDS` | `1.0` | 每次浏览停留秒数 |
 | `BLABLA_POINTS_REPAIR_ROUNDS` | `3` | 奖励中心复核补做最大轮数 |
 | `BLABLA_SLOW_MO_MS` | `0` | Playwright slow motion 调试延迟 |
@@ -419,12 +420,9 @@ blablalink-tasker diagnose --headful --verbose
 
 如果关键选择器不可见，可能需要更新代码中的选择器。
 
-## 开发测试
+## 开发与贡献
 
-```powershell
-python -m pip install -e ".[dev]"
-python -m pytest
-```
+项目结构、修改约定、在线调试边界、测试命令和提交规范见 [AGENTS.md](AGENTS.md)。
 
 ## 安全说明
 
